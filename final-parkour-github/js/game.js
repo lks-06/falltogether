@@ -1,8 +1,7 @@
 // =============================================
-// SPIELLOGIK (MIT SHARED COINS)
+// SPIELLOGIK
 // =============================================
 
-// --- DOM-Elemente ---
 const world = document.getElementById('world');
 const wrapper = document.getElementById('gameWrapper');
 const scoreEl = document.getElementById('score');
@@ -19,33 +18,51 @@ const gameOverTitle = document.getElementById('gameOverTitle');
 const gameOverText = document.getElementById('gameOverText');
 const roomCodeEl = document.getElementById('roomCode');
 
-// --- Spieler erstellen ---
 let player = document.createElement('div');
 player.className = 'player';
 world.appendChild(player);
 
 let goalEl = null;
-let platforms, coins, obstacles, spikes, ladders, birds;
+let platforms = [];
+let coins = [];
+let obstacles = [];
+let spikes = [];
+let ladders = [];
+let birds = [];
 
-let score = 0, lives = CONFIG.startLives, level = 1;
-let playerX = CONFIG.startX, playerY = CONFIG.startY, velY = 0, velX = 0;
-let gameActive = false, countdownActive = false;
-let keys = { left: false, right: false, up: false, down: false };
-let camX = 0, camY = 0;
-let onLadder = false, touchingGoal = false, jumpsLeft = CONFIG.maxJumps;
-let prevUpPressed = false, dropThroughTimer = 0;
+let score = 0;
+let lives = CONFIG.startLives;
+let level = 1;
 
-// --- Multiplayer URL-Parameter lesen ---
+let playerX = CONFIG.startX;
+let playerY = CONFIG.startY;
+let velX = 0;
+let velY = 0;
+
+let gameActive = false;
+let countdownActive = false;
+let onLadder = false;
+let jumpsLeft = CONFIG.maxJumps;
+let prevUpPressed = false;
+let dropThroughTimer = 0;
+
+let camX = 0;
+let camY = 0;
+
+const keys = { left: false, right: false, up: false, down: false };
+
 const urlParams = new URLSearchParams(window.location.search);
 const roomCode = urlParams.get('room');
-const playerName = urlParams.get('name') || localStorage.getItem('parkourname') || 'Spieler';
+const playerName = urlParams.get('name') || 'Spieler';
 
-// Spieler & Raum-Code anzeigen
+if (!roomCode) {
+  window.location.href = 'index.html';
+}
+
 if (roomCodeEl && roomCode) {
   roomCodeEl.textContent = roomCode;
 }
 
-// Kopier-Button
 const copyBtn = document.getElementById('copyRoom');
 if (copyBtn && roomCode) {
   copyBtn.addEventListener('click', () => {
@@ -58,19 +75,17 @@ if (copyBtn && roomCode) {
   });
 }
 
-// Kein Raum-Code → zurück zur Lobby
-if (!roomCode) {
-  window.location.href = 'index.html';
-}
+livesEl.textContent = lives;
+levelEl.textContent = level;
+scoreEl.textContent = score;
 
-// --- Level bauen ---
 function makeDiv(cls, x, y, w, h) {
   const d = document.createElement('div');
   d.className = cls;
   d.style.left = x + 'px';
   d.style.top = y + 'px';
-  if (w) d.style.width = w + 'px';
-  if (h) d.style.height = h + 'px';
+  if (w !== undefined) d.style.width = w + 'px';
+  if (h !== undefined) d.style.height = h + 'px';
   world.appendChild(d);
   return d;
 }
@@ -78,8 +93,7 @@ function makeDiv(cls, x, y, w, h) {
 function buildLevel() {
   const levelData = LEVELS[level];
 
-  // Alte Elemente löschen
-  world.querySelectorAll('.platform,.coin,.obstacle,.spike,.ladder,.goal,.bird').forEach(e => e.remove());
+  [...world.querySelectorAll('.platform,.coin,.obstacle,.spike,.ladder,.goal,.bird')].forEach(el => el.remove());
 
   platforms = [];
   coins = [];
@@ -88,63 +102,49 @@ function buildLevel() {
   ladders = [];
   birds = [];
 
-  // Plattformen
   levelData.platforms.forEach((p, i) => {
-    makeDiv('platform', ...p);
+    makeDiv('platform', p[0], p[1], p[2], p[3]);
     platforms.push({ x: p[0], y: p[1], w: p[2], h: p[3], solidGround: i === 0 });
   });
 
-  // Leitern mit expliziter Breite
   levelData.ladders.forEach(l => {
     makeDiv('ladder', l[0], l[1], 18, l[2]);
     ladders.push({ x: l[0], y: l[1], w: 18, h: l[2] });
   });
 
-  // Hindernisse
   levelData.obstacles.forEach(o => {
-    makeDiv('obstacle', ...o);
+    makeDiv('obstacle', o[0], o[1], o[2], o[3]);
     obstacles.push({ x: o[0], y: o[1], w: o[2], h: o[3] });
   });
 
-  // Stacheln
   levelData.spikes.forEach(s => {
     makeDiv('spike', s[0], s[1], 0, 0);
     spikes.push({ x: s[0], y: s[1], w: 20, h: 24 });
   });
 
-  // Münzen
-  coins = [];
-  levelData.coins.forEach((c, index) => {
-    let el = makeDiv('coin', c[0], c[1], 16, 16);
-    coins.push({ x: c[0], y: c[1], w: 16, h: 16, el, collected: false, index });
-    
-    // Prüfe ob diese Münze schon vom Team gesammelt wurde
-    if (isCoinCollected(level, index)) {
-      coins[coins.length - 1].collected = true;
-      el.style.display = 'none';
-    }
+  levelData.coins.forEach(c => {
+    const el = makeDiv('coin', c[0], c[1], 16, 16);
+    coins.push({ x: c[0], y: c[1], w: 16, h: 16, el, collected: false });
   });
 
-  updateRemaining();
-
-  // Ziel
   goalEl = makeDiv('goal', levelData.goal[0], levelData.goal[1], 36, 44);
-}
 
-function updateRemaining() {
-  if (remainingEl) {
-    const remaining = coins.filter(c => !c.collected).length;
-    remainingEl.textContent = remaining;
+  updateRemaining();
+  if (typeof syncSharedCoinsFromLocal === 'function') {
+    syncSharedCoinsFromLocal(level, coins);
   }
 }
 
-// --- Vögel ---
+function updateRemaining() {
+  remainingEl.textContent = coins.filter(c => !c.collected).length;
+}
+
 function spawnBird() {
   const y = 180 + Math.random() * 1000;
-  const fromLeft = Math.random() < 0.5;
+  const fromLeft = Math.random() > 0.5;
   const x = fromLeft ? -60 : CONFIG.worldWidth + 60;
   const speed = fromLeft
-    ? CONFIG.birdMinSpeed + Math.random() * (CONFIG.birdMaxSpeed - CONFIG.birdMinSpeed)
+    ? (CONFIG.birdMinSpeed + Math.random() * (CONFIG.birdMaxSpeed - CONFIG.birdMinSpeed))
     : -(CONFIG.birdMinSpeed + Math.random() * (CONFIG.birdMaxSpeed - CONFIG.birdMinSpeed));
 
   const el = document.createElement('div');
@@ -155,12 +155,13 @@ function spawnBird() {
   birds.push({ x, y, w: 34, h: 20, speed, el });
 }
 
-// --- Kollision ---
 function rects(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  return a.x < b.x + b.w &&
+         a.x + a.w > b.x &&
+         a.y < b.y + b.h &&
+         a.y + a.h > b.y;
 }
 
-// --- Spieler zurücksetzen ---
 function resetPlayer() {
   playerX = CONFIG.startX;
   playerY = CONFIG.startY;
@@ -172,7 +173,6 @@ function resetPlayer() {
   dropThroughTimer = 0;
 }
 
-// --- Leben verlieren ---
 function loseLife() {
   lives--;
   livesEl.textContent = lives;
@@ -182,30 +182,29 @@ function loseLife() {
     gameOver.classList.remove('hidden');
     gameOverTitle.textContent = 'Game Over';
     gameOverText.textContent = 'Du bist zu oft gestorben.';
-  } else {
-    resetPlayer();
-    infoEl.textContent = 'Von vorne gestartet!';
-    setTimeout(() => {
-      infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel';
-    }, 900);
+    return;
   }
+
+  resetPlayer();
+  infoEl.textContent = 'Von vorne gestartet!';
+  setTimeout(() => {
+    infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel';
+  }, 900);
 }
 
-// --- Kamera ---
 function updateCamera() {
   const vw = wrapper.clientWidth;
   const vh = wrapper.clientHeight;
 
-  camX += (playerX - vw * CONFIG.cameraOffsetX - camX) * CONFIG.cameraDamping;
-  camY += (playerY - vh * CONFIG.cameraOffsetY - camY) * CONFIG.cameraDamping;
+  camX += ((playerX - vw * CONFIG.cameraOffsetX) - camX) * CONFIG.cameraDamping;
+  camY += ((playerY - vh * CONFIG.cameraOffsetY) - camY) * CONFIG.cameraDamping;
 
   camX = Math.max(0, Math.min(camX, CONFIG.worldWidth - vw));
   camY = Math.max(0, Math.min(camY, CONFIG.worldHeight - vh));
 
-  world.style.transform = `translate(-${camX}px,-${camY}px)`;
+  world.style.transform = `translate(${-camX}px, ${-camY}px)`;
 }
 
-// --- Countdown ---
 function startCountdown() {
   countdownActive = true;
   gameActive = false;
@@ -227,18 +226,15 @@ function startCountdown() {
   }, 1000);
 }
 
-// --- Leiter-Check ---
 function onLadderNow() {
-  return ladders.find(
-    l =>
-      playerX + CONFIG.playerWidth > l.x &&
-      playerX < l.x + l.w &&
-      playerY + CONFIG.playerHeight > l.y &&
-      playerY < l.y + l.h + 12
+  return ladders.find(l =>
+    playerX + CONFIG.playerWidth > l.x &&
+    playerX < l.x + l.w &&
+    playerY + CONFIG.playerHeight > l.y &&
+    playerY < l.y + l.h + 12
   );
 }
 
-// --- Springen ---
 function jump() {
   if (countdownActive || !gameActive) return;
 
@@ -259,58 +255,51 @@ function jump() {
 }
 
 function allCoinsCollected() {
-  // Team braucht ALLE Münzen vom Level gesammelt zu haben
   return coins.every(c => c.collected);
 }
 
-// --- Level wechseln (auch für Multiplayer) ---
 function switchToLevel(newLevel) {
-  if (newLevel > CONFIG.totalLevels) {
-    newLevel = level;
-    return;
-  }
+  if (newLevel > CONFIG.totalLevels || newLevel <= level) return;
 
   level = newLevel;
   levelEl.textContent = level;
+
   buildLevel();
   resetPlayer();
   startCountdown();
 
-  infoEl.textContent = `Level ${level} startet`;
+  infoEl.textContent = 'Level ' + level + ' startet';
   setTimeout(() => {
     infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel';
   }, 1200);
 }
 
-// --- Multiplayer Level-Sync empfangen ---
-let onRemoteLevelUp = function(newLevel) {
+onRemoteLevelUp = function(newLevel) {
   switchToLevel(newLevel);
-  showToast('Nächstes Level!');
+  if (typeof showToast === 'function') {
+    showToast('Nächstes Level!');
+  }
 };
 
-// --- Vögel spawnen ---
 setInterval(() => {
   if (gameActive && !countdownActive && birds.length < CONFIG.maxBirds && Math.random() < CONFIG.birdSpawnChance) {
     spawnBird();
   }
 }, CONFIG.birdSpawnInterval);
 
-// --- Haupt-Update ---
 function update() {
-  // Drop-through Timer
   if (dropThroughTimer > 0) dropThroughTimer--;
 
-  const standingPlatformTop = platforms.find(
-    p =>
-      playerX + CONFIG.playerWidth > p.x &&
-      playerX < p.x + p.w &&
-      Math.abs(playerY + CONFIG.playerHeight - p.y) <= 6
+  const standingPlatformTop = platforms.find(p =>
+    playerX + CONFIG.playerWidth > p.x &&
+    playerX < p.x + p.w &&
+    Math.abs((playerY + CONFIG.playerHeight) - p.y) <= 6
   );
-  const ladderAtFeet = ladders.find(
-    l =>
-      playerX + CONFIG.playerWidth > l.x &&
-      playerX < l.x + l.w &&
-      Math.abs(playerY + CONFIG.playerHeight - l.y) <= 10
+
+  const ladderAtFeet = ladders.find(l =>
+    playerX + CONFIG.playerWidth > l.x &&
+    playerX < l.x + l.w &&
+    Math.abs((playerY + CONFIG.playerHeight) - l.y) <= 10
   );
 
   if (keys.down && standingPlatformTop && !standingPlatformTop.solidGround && !ladderAtFeet && !onLadder && dropThroughTimer <= 0) {
@@ -325,27 +314,25 @@ function update() {
     return;
   }
 
-  // Bewegung
   velX = keys.left ? -CONFIG.moveSpeed : keys.right ? CONFIG.moveSpeed : 0;
   playerX += velX;
 
-  // Leiter
-  let ladder = onLadderNow();
+  const ladder = onLadderNow();
   onLadder = !!ladder && velY >= 0;
 
   if (onLadder) {
     const ladderTop = ladder.y;
     const atTop = playerY <= ladderTop - 10;
-    const standingOnTop = platforms.some(
-      pl =>
-        playerX + CONFIG.playerWidth > pl.x &&
-        playerX < pl.x + pl.w &&
-        Math.abs(playerY + CONFIG.playerHeight - pl.y) <= 6 &&
-        ladder.x + ladder.w > pl.x &&
-        ladder.x < pl.x + pl.w
+    const standingOnTop = platforms.some(pl =>
+      playerX + CONFIG.playerWidth > pl.x &&
+      playerX < pl.x + pl.w &&
+      Math.abs((playerY + CONFIG.playerHeight) - pl.y) <= 6 &&
+      ladder.x + ladder.w > pl.x &&
+      ladder.x < pl.x + pl.w
     );
 
     const upJustPressed = keys.up && !prevUpPressed;
+
     if ((atTop || standingOnTop) && upJustPressed) {
       jump();
     } else {
@@ -364,25 +351,17 @@ function update() {
   } else {
     velY += CONFIG.gravity;
     playerY += velY;
-  }
 
-  // Plattform-Kollision
-  for (const p of platforms) {
-    const r = { x: playerX, y: playerY, w: CONFIG.playerWidth, h: CONFIG.playerHeight };
-    if (
-      dropThroughTimer <= 0 &&
-      !onLadder &&
-      rects(r, p) &&
-      velY >= 0 &&
-      playerY + CONFIG.playerHeight - velY <= p.y + 8
-    ) {
-      playerY = p.y - CONFIG.playerHeight;
-      velY = 0;
-      jumpsLeft = CONFIG.maxJumps;
+    for (const p of platforms) {
+      const r = { x: playerX, y: playerY, w: CONFIG.playerWidth, h: CONFIG.playerHeight };
+      if (dropThroughTimer <= 0 && !onLadder && rects(r, p) && velY >= 0 && playerY + CONFIG.playerHeight - velY <= p.y + 8) {
+        playerY = p.y - CONFIG.playerHeight;
+        velY = 0;
+        jumpsLeft = CONFIG.maxJumps;
+      }
     }
   }
 
-  // Gefahren-Kollision
   const pr = { x: playerX, y: playerY, w: CONFIG.playerWidth, h: CONFIG.playerHeight };
 
   for (const s of spikes) {
@@ -413,17 +392,8 @@ function update() {
     return;
   }
 
-  // Münzen einsammeln
   for (let i = 0; i < coins.length; i++) {
     const c = coins[i];
-
-    // Prüfe ob diese Münze schon vom Team gesammelt wurde
-    if (isCoinCollected(level, i)) {
-      c.collected = true;
-      c.el.style.display = 'none';
-      continue;
-    }
-
     if (!c.collected && rects(pr, c)) {
       c.collected = true;
       c.el.style.display = 'none';
@@ -431,12 +401,12 @@ function update() {
       scoreEl.textContent = score;
       updateRemaining();
 
-      // Anderen Spielern mitteilen dass wir diese Münze genommen haben
-      onCoinCollected(level, i, playerName);
+      if (typeof collectSharedCoin === 'function') {
+        collectSharedCoin(level, i, roomCode, playerName);
+      }
     }
   }
 
-  // Vögel bewegen & Kollision
   for (let i = birds.length - 1; i >= 0; i--) {
     const b = birds[i];
     b.x += b.speed;
@@ -457,7 +427,6 @@ function update() {
     }
   }
 
-  // Ziel erreicht?
   const goalData = LEVELS[level].goal;
   if (rects(pr, { x: goalData[0], y: goalData[1], w: 36, h: 44 })) {
     if (allCoinsCollected()) {
@@ -469,7 +438,7 @@ function update() {
         gameActive = false;
         gameOver.classList.remove('hidden');
         gameOverTitle.textContent = 'Geschafft!';
-        gameOverText.textContent = `Ihr habt alle ${CONFIG.totalLevels} schweren Level geschafft!`;
+        gameOverText.textContent = 'Ihr habt alle ' + CONFIG.totalLevels + ' schweren Level geschafft!';
       }
     } else {
       goalEl.style.background = '#ff5555';
@@ -479,15 +448,12 @@ function update() {
     }
   }
 
-  // Grenzen
   playerX = Math.max(0, Math.min(playerX, CONFIG.worldWidth - CONFIG.playerWidth));
   playerY = Math.max(0, Math.min(playerY, CONFIG.worldHeight - CONFIG.playerHeight));
 
   prevUpPressed = keys.up;
 
-  // Multiplayer: Position senden
   broadcastPosition(playerX, playerY, velX, level, onLadder);
-
   updateCamera();
   render();
 }
@@ -496,8 +462,6 @@ function render() {
   player.style.left = playerX + 'px';
   player.style.top = playerY + 'px';
   player.style.transform = velX < 0 ? 'scaleX(-1)' : '';
-
-  // Remote-Spieler rendern
   renderRemotePlayers(level);
 }
 
@@ -506,60 +470,53 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-// --- Steuerung: Touch & Maus ---
 function bindHold(btn, key) {
-  btn.addEventListener(
-    'touchstart',
-    e => {
-      e.preventDefault();
-      keys[key] = true;
-    },
-    { passive: false }
-  );
-  btn.addEventListener(
-    'touchend',
-    e => {
-      e.preventDefault();
-      keys[key] = false;
-    },
-    { passive: false }
-  );
-  btn.addEventListener(
-    'touchcancel',
-    e => {
-      e.preventDefault();
-      keys[key] = false;
-    },
-    { passive: false }
-  );
-  btn.addEventListener('mousedown', () => (keys[key] = true));
-  btn.addEventListener('mouseup', () => (keys[key] = false));
-  btn.addEventListener('mouseleave', () => (keys[key] = false));
+  btn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    keys[key] = true;
+  }, { passive: false });
+
+  btn.addEventListener('touchend', e => {
+    e.preventDefault();
+    keys[key] = false;
+  }, { passive: false });
+
+  btn.addEventListener('touchcancel', e => {
+    e.preventDefault();
+    keys[key] = false;
+  }, { passive: false });
+
+  btn.addEventListener('mousedown', () => {
+    keys[key] = true;
+  });
+
+  btn.addEventListener('mouseup', () => {
+    keys[key] = false;
+  });
+
+  btn.addEventListener('mouseleave', () => {
+    keys[key] = false;
+  });
 }
 
 bindHold(document.getElementById('leftBtn'), 'left');
 bindHold(document.getElementById('rightBtn'), 'right');
+bindHold(document.getElementById('downBtn'), 'down');
 
-document.getElementById('upBtn').addEventListener(
-  'touchstart',
-  e => {
-    e.preventDefault();
-    if (onLadderNow()) {
-      keys.up = true;
-    } else {
-      jump();
-    }
-  },
-  { passive: false }
-);
-document.getElementById('upBtn').addEventListener(
-  'touchend',
-  e => {
-    e.preventDefault();
-    keys.up = false;
-  },
-  { passive: false }
-);
+document.getElementById('upBtn').addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (onLadderNow()) {
+    keys.up = true;
+  } else {
+    jump();
+  }
+}, { passive: false });
+
+document.getElementById('upBtn').addEventListener('touchend', e => {
+  e.preventDefault();
+  keys.up = false;
+}, { passive: false });
+
 document.getElementById('upBtn').addEventListener('mousedown', () => {
   if (onLadderNow()) {
     keys.up = true;
@@ -567,11 +524,11 @@ document.getElementById('upBtn').addEventListener('mousedown', () => {
     jump();
   }
 });
-document.getElementById('upBtn').addEventListener('mouseup', () => (keys.up = false));
 
-bindHold(document.getElementById('downBtn'), 'down');
+document.getElementById('upBtn').addEventListener('mouseup', () => {
+  keys.up = false;
+});
 
-// --- Steuerung: Tastatur ---
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
@@ -590,24 +547,22 @@ window.addEventListener('keyup', e => {
   if (e.key === 'ArrowDown' || e.key === 's') keys.down = false;
 });
 
-// --- Aufräumen beim Verlassen ---
 window.addEventListener('beforeunload', () => {
   cleanupMultiplayer();
-  cleanupSharedCoins();
 });
 
-// --- Spiel starten ---
 let gameStarted = false;
 startBtn.addEventListener('click', () => {
   if (gameStarted) return;
   gameStarted = true;
+
   startScreen.classList.add('hidden');
 
-  // Multiplayer initialisieren
   initMultiplayer(roomCode, playerName);
 
-  // Shared Coins System initialisieren
-  initSharedCoins(roomCode);
+  if (typeof initSharedCoins === 'function') {
+    initSharedCoins(roomCode, playerName);
+  }
 
   buildLevel();
   resetPlayer();

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<title>Parkour Multiplayer - Lobby</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="lobby-wrapper">
+  <div class="lobby">
+    <h1>Parkour Multiplayer</h1>
+    <p>Spiele mit Freunden zusammen!</p>
+
+    <input type="text" id="nameInput" placeholder="Dein Name" maxlength="16" />
+
+    <button class="lobby-btn primary" id="createBtn">Raum erstellen</button>
+
+    <div class="divider"><span>oder</span></div>
+
+    <input type="text" id="roomInput" placeholder="Raum-Code eingeben" maxlength="5"
+           style="text-transform:uppercase;letter-spacing:4px;font-size:22px;font-weight:bold" />
+
+    <button class="lobby-btn secondary" id="joinBtn">Raum beitreten</button>
+  </div>
+</div>
+
+<script>
+// Name aus localStorage laden
+const nameInput = document.getElementById('nameInput');
+const savedName = localStorage.getItem('parkour_name');
+if (savedName) nameInput.value = savedName;
+
+// Name speichern bei Eingabe
+nameInput.addEventListener('input', () => {
+  localStorage.setItem('parkour_name', nameInput.value);
+});
+
+// Raum-Code generieren (5 Zeichen)
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 7).toUpperCase();
+}
+
+// Zum Spiel navigieren
+function goToGame(roomCode) {
+  const name = nameInput.value.trim() || 'Spieler';
+  localStorage.setItem('parkour_name', name);
+  window.location.href = `game.html?room=${roomCode}&name=${encodeURIComponent(name)}`;
+}
+
+// Raum erstellen
+document.getElementById('createBtn').addEventListener('click', () => {
+  const code = generateRoomCode();
+  goToGame(code);
+});
+
+// Raum beitreten
+document.getElementById('joinBtn').addEventListener('click', () => {
+  const code = document.getElementById('roomInput').value.trim().toUpperCase();
+  if (code.length < 3) {
+    document.getElementById('roomInput').style.borderColor = '#ff5555';
+    setTimeout(() => document.getElementById('roomInput').style.borderColor = '', 1000);
+    return;
+  }
+  goToGame(code);
+});
+
+// Enter-Taste im Raum-Code Feld
+document.getElementById('roomInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('joinBtn').click();
+});
+
+// Nur Großbuchstaben und Zahlen im Raum-Code erlauben
+document.getElementById('roomInput').addEventListener('input', e => {
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+});
+</script>
+</body>
+</html>

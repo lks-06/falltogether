@@ -75,8 +75,10 @@ function buildLevel() {
   platforms = []; coins = []; obstacles = []; spikes = []; ladders = []; birds = [];
 
   levelData.platforms.forEach((p, i) => {
-    makeDiv('platform', ...p);
-    platforms.push({ x: p[0], y: p[1], w: p[2], h: p[3], solidGround: i === 0 });
+    const type = p[4] || '';  // z.B. "ground", "stone", "ice", etc.
+    const cls = type ? 'platform platform-' + type : 'platform';
+    makeDiv(cls, p[0], p[1], p[2], p[3]);
+    platforms.push({ x: p[0], y: p[1], w: p[2], h: p[3], solidGround: i < 4 });
   });
 
   levelData.ladders.forEach(l => {

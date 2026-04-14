@@ -1,1 +1,0 @@
-Für GitHub Pages diese index.html hochladen oder die ZIP entpacken und index.html verwenden.

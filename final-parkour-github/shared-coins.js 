@@ -1,109 +1,164 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Parkour — Multiplayer</title>
-  <link rel="stylesheet" href="style.css">
-  <style>
-    #teamScore {
-      position: absolute;
-      top: 60px;
-      left: 10px;
-      font-size: 16px;
-      font-weight: bold;
-      color: #ffd700;
-      background: rgba(0, 0, 0, 0.8);
-      padding: 10px 14px;
-      border-radius: 6px;
-      z-index: 100;
-      border: 2px solid #ffd700;
-    }
+// =============================================
+// SHARED COINS SYSTEM
+// Münzen sind für das ganze Team — wenn einer nimmt, ist sie weg für alle
+// =============================================
 
-    #playerStats {
-      position: absolute;
-      top: 110px;
-      left: 10px;
-      font-size: 13px;
-      color: #fff;
-      background: rgba(0, 0, 0, 0.8);
-      padding: 10px 14px;
-      border-radius: 6px;
-      z-index: 100;
-      max-width: 200px;
-    }
+let sharedCoinsChannel = null;
+let roomCoinsState = {
+  total_collected: 0,
+  total_available: 48,
+  collected_coins: []
+};
 
-    .player-stat {
-      margin: 5px 0;
-      padding: 6px 8px;
-      border-radius: 4px;
-      font-weight: 500;
-    }
+const playerCoinsCount = new Map();
 
-    .player-stat.local {
-      background: rgba(82, 181, 255, 0.4);
-      border-left: 3px solid #82b1ff;
+function initSharedCoins(roomCode) {
+  sharedCoinsChannel = supabaseClient.channel(`coins:${roomCode}`, {
+    config: {
+      broadcast: { self: true },
     }
+  });
 
-    .player-stat.remote {
-      background: rgba(100, 100, 100, 0.3);
-      border-left: 3px solid #888;
+  sharedCoinsChannel.on('broadcast', { event: 'coin_collected' }, ({ payload }) => {
+    if (!payload) return;
+    
+    const { level, coin_index, player_id, player_name } = payload;
+    
+    const alreadyCollected = roomCoinsState.collected_coins.some(
+      c => c.level === level && c.coin_index === coin_index
+    );
+    
+    if (!alreadyCollected) {
+      roomCoinsState.collected_coins.push({ level, coin_index, player_id });
+      roomCoinsState.total_collected++;
+      
+      const currentCount = playerCoinsCount.get(player_id) || 0;
+      playerCoinsCount.set(player_id, currentCount + 1);
+      
+      updateSharedCoinsUI();
+      showToast(`${player_name} hat eine Münze gesammelt! 🪙`);
     }
-  </style>
+  });
+
+  sharedCoinsChannel.on('broadcast', { event: 'coins_sync' }, ({ payload }) => {
+    if (!payload || payload.player_id === mpPlayerId) return;
+    sendCoinsState();
+  });
+
+  sharedCoinsChannel.on('broadcast', { event: 'coins_state' }, ({ payload }) => {
+    if (!payload) return;
+    
+    for (const coin of payload.collected_coins) {
+      const alreadyKnown = roomCoinsState.collected_coins.some(
+        c => c.level === coin.level && c.coin_index === coin.coin_index
+      );
+      
+      if (!alreadyKnown) {
+        roomCoinsState.collected_coins.push(coin);
+        roomCoinsState.total_collected++;
+        
+        const count = playerCoinsCount.get(coin.player_id) || 0;
+        playerCoinsCount.set(coin.player_id, count + 1);
+      }
+    }
+    
+    updateSharedCoinsUI();
+  });
+
+  sharedCoinsChannel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      setTimeout(() => {
+        sharedCoinsChannel.send({
+          type: 'broadcast',
+          event: 'coins_sync',
+          payload: { player_id: mpPlayerId }
+        });
+      }, 500);
+    }
+  });
+}
+
+function onCoinCollected(level, coinIndex, playerName) {
+  if (!sharedCoinsChannel) return;
   
-  <script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="supabase-config.js"></script>
-  <script src="config.js"></script>
-  <script src="levels.js"></script>
-  <script src="multiplayer.js"></script>
-  <script src="shared-coins.js"></script>
-</head>
-<body>
-  <div id="gameWrapper" class="game-wrapper">
-    <div id="world" class="world"></div>
+  sharedCoinsChannel.send({
+    type: 'broadcast',
+    event: 'coin_collected',
+    payload: {
+      level: level,
+      coin_index: coinIndex,
+      player_id: mpPlayerId,
+      player_name: playerName
+    }
+  });
+  
+  const alreadyCollected = roomCoinsState.collected_coins.some(
+    c => c.level === level && c.coin_index === coinIndex
+  );
+  
+  if (!alreadyCollected) {
+    roomCoinsState.collected_coins.push({ level, coin_index, player_id: mpPlayerId });
+    roomCoinsState.total_collected++;
     
-    <div id="teamScore">Team: 0/48 🪙</div>
-    <div id="playerStats"></div>
+    const count = playerCoinsCount.get(mpPlayerId) || 0;
+    playerCoinsCount.set(mpPlayerId, count + 1);
     
-    <div id="score" class="hud-item score">Score: 0</div>
-    <div id="remaining" class="hud-item remaining">Münzen: ?</div>
-    <div id="lives" class="hud-item lives">Lives: 3</div>
-    <div id="level" class="hud-item level">Level 1</div>
-    <div id="info" class="hud-item info">Sammle alle Münzen und erreiche dann das Ziel</div>
-    <div id="roomCode" class="hud-item room-code"></div>
-    <button id="copyRoom" class="copy-btn">Kopieren</button>
-    <div id="playerCount" class="hud-item player-count">Spieler: 1</div>
+    updateSharedCoinsUI();
+  }
+}
 
-    <div class="controls">
-      <button id="leftBtn" class="control-btn left">◀</button>
-      <button id="rightBtn" class="control-btn right">▶</button>
-      <button id="upBtn" class="control-btn up">▲</button>
-      <button id="downBtn" class="control-btn down">▼</button>
-    </div>
+function isCoinCollected(level, coinIndex) {
+  return roomCoinsState.collected_coins.some(
+    c => c.level === level && c.coin_index === coinIndex
+  );
+}
 
-    <div id="countdown" class="overlay hidden">
-      <div class="countdown-box">
-        <span id="countText" class="countdown-text">3</span>
-      </div>
-    </div>
+function sendCoinsState() {
+  if (!sharedCoinsChannel) return;
+  
+  sharedCoinsChannel.send({
+    type: 'broadcast',
+    event: 'coins_state',
+    payload: {
+      collected_coins: roomCoinsState.collected_coins,
+      total_collected: roomCoinsState.total_collected
+    }
+  });
+}
 
-    <div id="gameOver" class="overlay hidden">
-      <div class="game-over-box">
-        <h1 id="gameOverTitle">Game Over</h1>
-        <p id="gameOverText">Du bist zu oft gestorben.</p>
-        <button onclick="location.reload()" class="restart-btn">Neuer Versuch</button>
-      </div>
-    </div>
+function updateSharedCoinsUI() {
+  const teamScoreEl = document.getElementById('teamScore');
+  if (teamScoreEl) {
+    teamScoreEl.textContent = `Team: ${roomCoinsState.total_collected}/${roomCoinsState.total_available} 🪙`;
+  }
+  
+  const playerStatsEl = document.getElementById('playerStats');
+  if (playerStatsEl) {
+    let html = '';
+    
+    const localCoins = playerCoinsCount.get(mpPlayerId) || 0;
+    html += `<div class="player-stat local">${mpPlayerName}: ${localCoins} 🪙</div>`;
+    
+    for (const [id, rp] of remotePlayers) {
+      const coins = playerCoinsCount.get(id) || 0;
+      html += `<div class="player-stat remote">${rp.name}: ${coins} 🪙</div>`;
+    }
+    
+    playerStatsEl.innerHTML = html;
+  }
+}
 
-    <div id="startScreen" class="overlay">
-      <div class="start-box">
-        <h1>🎮 Parkour — Multiplayer</h1>
-        <p>Bereit?</p>
-        <button id="startBtn" class="start-btn">START</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="game.js"></script>
-</body>
-</html>
+function cleanupSharedCoins() {
+  if (sharedCoinsChannel) {
+    sharedCoinsChannel.unsubscribe();
+    sharedCoinsChannel = null;
+  }
+  
+  roomCoinsState = {
+    total_collected: 0,
+    total_available: 48,
+    collected_coins: []
+  };
+  
+  playerCoinsCount.clear();
+}

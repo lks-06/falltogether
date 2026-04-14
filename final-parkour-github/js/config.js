@@ -33,8 +33,8 @@ const CONFIG = {
   birdMaxSpeed: 3.6,
 
   // ----- Multiplayer -----
-  syncRate: 66,             // ms zwischen Position-Updates (~15Hz)
-  interpolationFactor: 0.2, // Glätte der Remote-Spieler-Bewegung (0.05 = sehr glatt, 0.5 = direkt)
+  syncRate: 33,             // ms zwischen Position-Updates (~15Hz)
+  interpolationFactor: 0.3, // Glätte der Remote-Spieler-Bewegung (0.05 = sehr glatt, 0.5 = direkt)
 
   // Farben für Mitspieler (der lokale Spieler behält seine Farbe aus CSS)
   playerColors: [

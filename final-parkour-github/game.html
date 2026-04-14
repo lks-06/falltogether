@@ -1,75 +1,109 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-<title>Parkour Spiel - Multiplayer</title>
-<link rel="stylesheet" href="css/style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parkour — Multiplayer</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    #teamScore {
+      position: absolute;
+      top: 60px;
+      left: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #ffd700;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px 14px;
+      border-radius: 6px;
+      z-index: 100;
+      border: 2px solid #ffd700;
+    }
+
+    #playerStats {
+      position: absolute;
+      top: 110px;
+      left: 10px;
+      font-size: 13px;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px 14px;
+      border-radius: 6px;
+      z-index: 100;
+      max-width: 200px;
+    }
+
+    .player-stat {
+      margin: 5px 0;
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .player-stat.local {
+      background: rgba(82, 181, 255, 0.4);
+      border-left: 3px solid #82b1ff;
+    }
+
+    .player-stat.remote {
+      background: rgba(100, 100, 100, 0.3);
+      border-left: 3px solid #888;
+    }
+  </style>
+  
+  <script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="config.js"></script>
+  <script src="levels.js"></script>
+  <script src="multiplayer.js"></script>
+  <script src="shared-coins.js"></script>
 </head>
 <body>
-<div class="game-wrapper" id="gameWrapper">
-  <div class="world" id="world"></div>
-</div>
+  <div id="gameWrapper" class="game-wrapper">
+    <div id="world" class="world"></div>
+    
+    <div id="teamScore">Team: 0/48 🪙</div>
+    <div id="playerStats"></div>
+    
+    <div id="score" class="hud-item score">Score: 0</div>
+    <div id="remaining" class="hud-item remaining">Münzen: ?</div>
+    <div id="lives" class="hud-item lives">Lives: 3</div>
+    <div id="level" class="hud-item level">Level 1</div>
+    <div id="info" class="hud-item info">Sammle alle Münzen und erreiche dann das Ziel</div>
+    <div id="roomCode" class="hud-item room-code"></div>
+    <button id="copyRoom" class="copy-btn">Kopieren</button>
+    <div id="playerCount" class="hud-item player-count">Spieler: 1</div>
 
-<!-- HUD links: Spielinfo -->
-<div class="hud">
-  <div>Level: <span id="level">1</span>/<span id="totalLevels">6</span></div>
-  <div>Münzen: <span id="score">0</span></div>
-  <div>Noch zu sammeln: <span id="remaining">0</span></div>
-  <div>Leben: <span id="lives">3</span></div>
-</div>
+    <div class="controls">
+      <button id="leftBtn" class="control-btn left">◀</button>
+      <button id="rightBtn" class="control-btn right">▶</button>
+      <button id="upBtn" class="control-btn up">▲</button>
+      <button id="downBtn" class="control-btn down">▼</button>
+    </div>
 
-<!-- HUD rechts: Raum-Info -->
-<div class="room-hud">
-  <div>Raum: <span id="roomCode">---</span> <button id="copyRoom">Kopieren</button></div>
-  <div>Spieler: <span id="playerCount">1</span></div>
-</div>
+    <div id="countdown" class="overlay hidden">
+      <div class="countdown-box">
+        <span id="countText" class="countdown-text">3</span>
+      </div>
+    </div>
 
-<div class="info" id="info">Sammle alle Münzen und erreiche dann das Ziel</div>
+    <div id="gameOver" class="overlay hidden">
+      <div class="game-over-box">
+        <h1 id="gameOverTitle">Game Over</h1>
+        <p id="gameOverText">Du bist zu oft gestorben.</p>
+        <button onclick="location.reload()" class="restart-btn">Neuer Versuch</button>
+      </div>
+    </div>
 
-<!-- Start-Screen -->
-<div class="start" id="startScreen">
-  <div class="panel">
-    <h2>Parkour Multiplayer</h2>
-    <p>Spielt zusammen! Wenn einer das Ziel erreicht, kommen alle zum nächsten Level.</p>
-    <button class="ctrl" id="startBtn" style="width:140px;height:56px;font-size:20px">Start</button>
+    <div id="startScreen" class="overlay">
+      <div class="start-box">
+        <h1>🎮 Parkour — Multiplayer</h1>
+        <p>Bereit?</p>
+        <button id="startBtn" class="start-btn">START</button>
+      </div>
+    </div>
   </div>
-</div>
 
-<!-- Countdown -->
-<div class="countdown hidden" id="countdown">
-  <div class="panel">
-    <div id="countText" style="font-size:70px;font-weight:bold">3</div>
-  </div>
-</div>
-
-<!-- Game Over -->
-<div class="game-over hidden" id="gameOver">
-  <div class="panel">
-    <h2 id="gameOverTitle">Geschafft!</h2>
-    <p id="gameOverText"></p>
-    <button class="ctrl" onclick="location.reload()" style="width:180px;height:56px;font-size:18px">Nochmal spielen</button>
-  </div>
-</div>
-
-<!-- Mobile-Steuerung -->
-<div class="controls">
-  <div class="side">
-    <button class="ctrl" id="leftBtn">◀</button>
-    <button class="ctrl" id="rightBtn">▶</button>
-  </div>
-  <div class="jumpcol">
-    <button class="ctrl" id="upBtn">▲</button>
-    <button class="ctrl" id="downBtn">▼</button>
-  </div>
-</div>
-
-<!-- Scripts (Reihenfolge wichtig!) -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/supabase-config.js"></script>
-<script src="js/config.js"></script>
-<script src="js/levels.js"></script>
-<script src="js/multiplayer.js"></script>
-<script src="js/game.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>

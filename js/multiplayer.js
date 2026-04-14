@@ -28,11 +28,16 @@ function initMultiplayer(roomCode, playerName) {
   });
 
   // Presence Sync: alle Spieler-Positionen aktualisieren
+  // Dies ist der Haupt-Handler — erstellt neue Spieler UND aktualisiert Positionen
   mpChannel.on('presence', { event: 'sync' }, () => {
     const state = mpChannel.presenceState();
+
+    // Alle Spieler im State durchgehen
+    const activeIds = new Set();
     for (const [id, presences] of Object.entries(state)) {
       if (id === mpPlayerId) continue;
-      const data = presences[0]; // neueste Presence-Daten
+      activeIds.add(id);
+      const data = presences[0];
       if (!data) continue;
 
       if (remotePlayers.has(id)) {
@@ -43,25 +48,39 @@ function initMultiplayer(roomCode, playerName) {
         rp.level = data.level;
         rp.facingLeft = data.facingLeft;
         rp.onLadder = data.onLadder;
+      } else {
+        // Neuen Spieler erstellen (z.B. wenn jemand später beitritt)
+        createRemotePlayer(id, data);
+        showToast((data.name || 'Spieler') + ' ist beigetreten!');
       }
     }
+
+    // Spieler entfernen die nicht mehr im State sind
+    for (const [id, rp] of remotePlayers) {
+      if (!activeIds.has(id)) {
+        showToast((rp.name || 'Spieler') + ' hat den Raum verlassen');
+        removeRemotePlayer(id);
+      }
+    }
+
     updatePlayerCount();
   });
 
-  // Spieler beigetreten
+  // Spieler beigetreten (Backup — sync handler erstellt sie auch)
   mpChannel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
     if (key === mpPlayerId) return;
     const data = newPresences[0];
-    if (!data) return;
+    if (!data || remotePlayers.has(key)) return;
 
     createRemotePlayer(key, data);
-    showToast(data.name + ' ist beigetreten!');
+    showToast((data.name || 'Spieler') + ' ist beigetreten!');
     updatePlayerCount();
   });
 
-  // Spieler verlassen
+  // Spieler verlassen (Backup — sync handler räumt auch auf)
   mpChannel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
     if (key === mpPlayerId) return;
+    if (!remotePlayers.has(key)) return;
     const name = leftPresences[0]?.name || 'Spieler';
     removeRemotePlayer(key);
     showToast(name + ' hat den Raum verlassen');

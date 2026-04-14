@@ -337,9 +337,11 @@ function update() {
       scoreEl.textContent = score;
       updateRemaining();
       // Shared Coins: Anderen Spielern mitteilen
-      if (typeof onCoinCollected === 'function') {
-        onCoinCollected(level, i, mpPlayerName);
-      }
+      try {
+        if (typeof onCoinCollected === 'function') {
+          onCoinCollected(level, i, mpPlayerName);
+        }
+      } catch (e) { /* shared-coins Fehler soll Spiel nicht crashen */ }
     }
   }
 

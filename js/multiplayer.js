@@ -1,6 +1,7 @@
 // =============================================
-// MULTIPLAYER-LOGIK
-// Supabase Realtime Presence für Echtzeit-Sync
+// MULTIPLAYER-LOGIK (OPTIMIERT FÜR ECHTZEIT)
+// Broadcast für Echtzeit-Positionen (30Hz)
+// Presence für Beitreten/Verlassen
 // =============================================
 
 // --- State ---
@@ -10,128 +11,204 @@ let mpPlayerName = 'Spieler';
 let mpPlayerColor = '#ff8a80';
 let mpRoomCode = null;
 const remotePlayers = new Map();
+let mpInitialized = false;
 
 // --- Callbacks (werden von game.js gesetzt) ---
-let onRemoteLevelUp = null; // function(newLevel) - wird aufgerufen wenn ein anderer Spieler Level aufsteigt
+let onRemoteLevelUp = null;
 
 // --- Initialisierung ---
 function initMultiplayer(roomCode, playerName) {
   mpRoomCode = roomCode;
   mpPlayerName = playerName || 'Spieler';
-
-  // Farbe zuweisen basierend auf playerId-Hash
+  
+  // Farbe zuweisen
   const colorIndex = Math.abs(hashCode(mpPlayerId)) % CONFIG.playerColors.length;
   mpPlayerColor = CONFIG.playerColors[colorIndex];
-
+  
   mpChannel = supabaseClient.channel(`room:${roomCode}`, {
-    config: { presence: { key: mpPlayerId } }
-  });
-
-  // Presence Sync: alle Spieler-Positionen aktualisieren
-  // Dies ist der Haupt-Handler — erstellt neue Spieler UND aktualisiert Positionen
-  mpChannel.on('presence', { event: 'sync' }, () => {
-    const state = mpChannel.presenceState();
-
-    // Alle Spieler im State durchgehen
-    const activeIds = new Set();
-    for (const [id, presences] of Object.entries(state)) {
-      if (id === mpPlayerId) continue;
-      activeIds.add(id);
-      const data = presences[0];
-      if (!data) continue;
-
-      if (remotePlayers.has(id)) {
-        // Bestehenden Spieler aktualisieren
-        const rp = remotePlayers.get(id);
-        rp.targetX = data.x;
-        rp.targetY = data.y;
-        rp.level = data.level;
-        rp.facingLeft = data.facingLeft;
-        rp.onLadder = data.onLadder;
-      } else {
-        // Neuen Spieler erstellen (z.B. wenn jemand später beitritt)
-        createRemotePlayer(id, data);
-        showToast((data.name || 'Spieler') + ' ist beigetreten!');
-      }
+    config: {
+      broadcast: { self: false },
+      presence: { key: mpPlayerId }
     }
+  });
 
-    // Spieler entfernen die nicht mehr im State sind
-    for (const [id, rp] of remotePlayers) {
-      if (!activeIds.has(id)) {
-        showToast((rp.name || 'Spieler') + ' hat den Raum verlassen');
-        removeRemotePlayer(id);
-      }
+  // ===== BROADCAST: Echtzeit-Positionen =====
+  mpChannel.on('broadcast', { event: 'pos' }, ({ payload }) => {
+    if (!payload || payload.id === mpPlayerId) return;
+    
+    const id = payload.id;
+    if (remotePlayers.has(id)) {
+      const rp = remotePlayers.get(id);
+      rp.targetX = payload.x;
+      rp.targetY = payload.y;
+      rp.level = payload.level;
+      rp.facingLeft = payload.facingLeft;
+      rp.onLadder = payload.onLadder;
+      rp.lastSeen = Date.now();
+    } else {
+      // Neuer Spieler — erstelle ihn sofort (auch aus Broadcast!)
+      createRemotePlayer(id, payload);
     }
-
-    updatePlayerCount();
   });
 
-  // Spieler beigetreten (Backup — sync handler erstellt sie auch)
-  mpChannel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
-    if (key === mpPlayerId) return;
-    const data = newPresences[0];
-    if (!data || remotePlayers.has(key)) return;
-
-    createRemotePlayer(key, data);
-    showToast((data.name || 'Spieler') + ' ist beigetreten!');
-    updatePlayerCount();
-  });
-
-  // Spieler verlassen (Backup — sync handler räumt auch auf)
-  mpChannel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-    if (key === mpPlayerId) return;
-    if (!remotePlayers.has(key)) return;
-    const name = leftPresences[0]?.name || 'Spieler';
-    removeRemotePlayer(key);
-    showToast(name + ' hat den Raum verlassen');
-    updatePlayerCount();
-  });
-
-  // Broadcast: Level-Wechsel
+  // ===== BROADCAST: Level-Wechsel =====
   mpChannel.on('broadcast', { event: 'level_up' }, ({ payload }) => {
     if (onRemoteLevelUp && payload && payload.level) {
       onRemoteLevelUp(payload.level);
     }
   });
 
-  // Channel abonnieren und eigenen Status tracken
+  // ===== BROADCAST: Spieler fragt "wer ist da?" (neuer Spieler joinent) =====
+  mpChannel.on('broadcast', { event: 'who' }, ({ payload }) => {
+    if (!payload || payload.id === mpPlayerId) return;
+    // Sofort unsere Position senden damit der neue Spieler uns sieht
+    sendPosition(true);
+  });
+
+  // ===== BROADCAST: Alle Positionen auf Anfrage =====
+  mpChannel.on('broadcast', { event: 'sync_pos' }, ({ payload }) => {
+    if (!payload || payload.id === mpPlayerId) return;
+    // Ein anderer Spieler hat Position angefordert, wir senden
+    sendPosition(true);
+  });
+
+  // ===== PRESENCE: Beitreten/Verlassen =====
+  mpChannel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
+    if (key === mpPlayerId) return;
+    const data = newPresences[0];
+    if (!data) return;
+    if (!remotePlayers.has(key)) {
+      createRemotePlayer(key, data);
+      showToast((data.name || 'Spieler') + ' ist beigetreten!');
+    }
+    updatePlayerCount();
+  });
+
+  mpChannel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+    if (key === mpPlayerId) return;
+    const name = remotePlayers.get(key)?.name || leftPresences[0]?.name || 'Spieler';
+    removeRemotePlayer(key);
+    showToast(name + ' hat den Raum verlassen');
+    updatePlayerCount();
+  });
+
+  mpChannel.on('presence', { event: 'sync' }, () => {
+    const state = mpChannel.presenceState();
+    let newPlayersFound = false;
+    
+    // Erstelle Spieler die wir noch nicht kennen
+    for (const [id, presences] of Object.entries(state)) {
+      if (id === mpPlayerId) continue;
+      const data = presences[0];
+      if (!data) continue;
+      if (!remotePlayers.has(id)) {
+        createRemotePlayer(id, data);
+        newPlayersFound = true;
+      }
+    }
+    
+    // Wenn neue Spieler gefunden wurden, fordere deren aktuelle Positionen an
+    if (newPlayersFound) {
+      setTimeout(() => {
+        mpChannel.send({
+          type: 'broadcast',
+          event: 'sync_pos',
+          payload: { id: mpPlayerId }
+        });
+      }, 100);
+    }
+    
+    updatePlayerCount();
+  });
+
+  // ===== Channel abonnieren =====
   mpChannel.subscribe(async (status) => {
     if (status === 'SUBSCRIBED') {
+      mpInitialized = true;
+      
+      // Presence tracken (für join/leave Erkennung)
       await mpChannel.track({
-        x: CONFIG.startX,
-        y: CONFIG.startY,
-        level: 1,
         name: mpPlayerName,
         color: mpPlayerColor,
-        facingLeft: false,
-        onLadder: false
+        x: CONFIG.startX,
+        y: CONFIG.startY,
+        level: 1
       });
+
+      // "Wer ist da?" senden — alle anderen antworten mit ihrer Position
+      setTimeout(() => {
+        mpChannel.send({
+          type: 'broadcast',
+          event: 'who',
+          payload: { id: mpPlayerId }
+        });
+      }, 300);
+    }
+  });
+
+  // Aufräumen: Spieler die lange nicht mehr gesendet haben entfernen
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, rp] of remotePlayers) {
+      if (rp.lastSeen && now - rp.lastSeen > 3000) {  // Verkürzt von 8s auf 3s
+        removeRemotePlayer(id);
+        updatePlayerCount();
+      }
+    }
+  }, 2000);
+}
+
+// --- Position senden via Broadcast (OPTIMIERT: 30Hz statt 15Hz, ~33ms) ---
+let lastBroadcast = 0;
+const BROADCAST_INTERVAL = 33;  // ~30Hz für smoothere Remote-Bewegung
+
+function sendPosition(force) {
+  if (!mpChannel || !mpInitialized) return;
+  
+  if (!force) {
+    const now = Date.now();
+    // Sende IMMER wenn genug Zeit vergangen ist, egal ob game läuft
+    if (now - lastBroadcast < BROADCAST_INTERVAL) return;
+    lastBroadcast = now;
+  }
+
+  mpChannel.send({
+    type: 'broadcast',
+    event: 'pos',
+    payload: {
+      id: mpPlayerId,
+      x: _lastPosX,
+      y: _lastPosY,
+      level: _lastLevel,
+      name: mpPlayerName,
+      color: mpPlayerColor,
+      facingLeft: _lastFacingLeft,
+      onLadder: _lastOnLadder
     }
   });
 }
 
-// --- Position broadcasten (throttled) ---
-let lastBroadcast = 0;
-function broadcastPosition(x, y, velX, currentLevel, isOnLadder) {
-  if (!mpChannel) return;
-  const now = Date.now();
-  if (now - lastBroadcast < CONFIG.syncRate) return;
-  lastBroadcast = now;
+// Zwischengespeicherte Position (wird von broadcastPosition aktualisiert)
+let _lastPosX = CONFIG.startX;
+let _lastPosY = CONFIG.startY;
+let _lastLevel = 1;
+let _lastFacingLeft = false;
+let _lastOnLadder = false;
 
-  mpChannel.track({
-    x: x,
-    y: y,
-    level: currentLevel,
-    name: mpPlayerName,
-    color: mpPlayerColor,
-    facingLeft: velX < 0,
-    onLadder: isOnLadder
-  });
+function broadcastPosition(x, y, velX, currentLevel, isOnLadder) {
+  _lastPosX = x;
+  _lastPosY = y;
+  _lastLevel = currentLevel;
+  _lastFacingLeft = velX < 0;
+  _lastOnLadder = isOnLadder;
+  
+  // Sende wenn bereit (nie blockiert von gameActive!)
+  sendPosition(false);
 }
 
 // --- Level-Up broadcasten ---
 function broadcastLevelUp(newLevel) {
-  if (!mpChannel) return;
+  if (!mpChannel || !mpInitialized) return;
   mpChannel.send({
     type: 'broadcast',
     event: 'level_up',
@@ -144,15 +221,13 @@ function createRemotePlayer(id, data) {
   if (remotePlayers.has(id)) return;
 
   const world = document.getElementById('world');
-
-  // Spieler-Div
+  
   const el = document.createElement('div');
   el.className = 'player remote-player';
   el.style.background = data.color || '#82b1ff';
   el.style.borderColor = darkenColor(data.color || '#82b1ff');
   world.appendChild(el);
 
-  // Namenslabel
   const label = document.createElement('div');
   label.className = 'player-label';
   label.textContent = data.name || 'Spieler';
@@ -169,7 +244,8 @@ function createRemotePlayer(id, data) {
     name: data.name || 'Spieler',
     color: data.color || '#82b1ff',
     facingLeft: false,
-    onLadder: false
+    onLadder: false,
+    lastSeen: Date.now()
   });
 }
 
@@ -183,10 +259,9 @@ function removeRemotePlayer(id) {
   }
 }
 
-// --- Remote-Spieler rendern (im Game-Loop aufrufen) ---
+// --- Remote-Spieler rendern (OPTIMIERT: smoothere Interpolation) ---
 function renderRemotePlayers(currentLevel) {
   for (const [id, rp] of remotePlayers) {
-    // Nur Spieler im gleichen Level anzeigen
     if (rp.level !== currentLevel) {
       rp.el.style.display = 'none';
       rp.label.style.display = 'none';
@@ -196,17 +271,14 @@ function renderRemotePlayers(currentLevel) {
     rp.el.style.display = '';
     rp.label.style.display = '';
 
-    // Smooth interpolation
+    // Smoothere Interpolation für flüssigere Bewegung
     rp.currentX += (rp.targetX - rp.currentX) * CONFIG.interpolationFactor;
     rp.currentY += (rp.targetY - rp.currentY) * CONFIG.interpolationFactor;
 
     rp.el.style.left = rp.currentX + 'px';
     rp.el.style.top = rp.currentY + 'px';
-
-    // Blickrichtung
     rp.el.style.transform = rp.facingLeft ? 'scaleX(-1)' : '';
 
-    // Label über dem Kopf zentrieren
     rp.label.style.left = (rp.currentX + CONFIG.playerWidth / 2) + 'px';
     rp.label.style.top = (rp.currentY - 16) + 'px';
   }
@@ -219,20 +291,23 @@ function cleanupMultiplayer() {
     mpChannel.unsubscribe();
     mpChannel = null;
   }
+
   for (const [id] of remotePlayers) {
     removeRemotePlayer(id);
   }
+  
+  mpInitialized = false;
 }
 
-// --- Spieleranzahl im HUD aktualisieren ---
+// --- HUD ---
 function updatePlayerCount() {
   const countEl = document.getElementById('playerCount');
   if (countEl) {
-    countEl.textContent = remotePlayers.size + 1; // +1 für den lokalen Spieler
+    countEl.textContent = remotePlayers.size + 1;
   }
 }
 
-// --- Toast-Nachricht anzeigen ---
+// --- Toast ---
 function showToast(message) {
   const toast = document.createElement('div');
   toast.className = 'toast';

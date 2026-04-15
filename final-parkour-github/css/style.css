@@ -37,6 +37,20 @@ body{display:flex;justify-content:center;align-items:center}
 .obstacle{position:absolute;background:#ff3b30;border:2px solid #b4231a;z-index:4}
 .spike{position:absolute;width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:24px solid #d7dbe0;filter:drop-shadow(0 0 1px #666);z-index:4}
 
+/* ===== MONSTER ===== */
+.monster{position:absolute;background:#6b4c9a;border:2px solid #3d2966;border-radius:8px;z-index:4;box-shadow:0 0 4px rgba(107,76,154,.6)}
+.monster::before,.monster::after{content:"";position:absolute;top:7px;width:6px;height:6px;background:#ffd700;border:1px solid #000;border-radius:50%}
+.monster::before{left:5px}
+.monster::after{right:5px}
+.monster-boss{background:linear-gradient(135deg,#c00020,#800010);border:3px solid #400008;border-radius:10px;box-shadow:0 0 12px rgba(255,50,50,.7)}
+.monster-boss::before,.monster-boss::after{top:10px;width:8px;height:8px;background:#fff;border:2px solid #000}
+.monster-hp-bg{position:absolute;height:5px;background:rgba(0,0,0,.6);border:1px solid #000;pointer-events:none;z-index:5;border-radius:2px}
+.monster-hp-fill{position:absolute;height:100%;background:#ff2020;border-radius:1px;transition:width .1s}
+.monster-name{position:absolute;color:#fff;font-size:12px;font-weight:bold;text-shadow:0 1px 3px #000,0 0 4px #000;pointer-events:none;z-index:5;white-space:nowrap;transform:translateX(-50%);text-align:center}
+
+/* ===== PROJEKTIL (Muenz-Schuss) ===== */
+.projectile{position:absolute;width:14px;height:14px;background:radial-gradient(#fff4a0,#ffd400 60%,#d49b00);border:2px solid #a07600;border-radius:50%;z-index:5;box-shadow:0 0 8px #ffd400}
+
 /* ===== VÖGEL ===== */
 .bird{position:absolute;width:34px;height:20px;z-index:6;pointer-events:none}
 .bird::before,.bird::after{content:"";position:absolute;top:6px;width:16px;height:8px;border:3px solid #2f2f2f;border-color:#2f2f2f transparent transparent transparent;border-radius:50%}

@@ -9,6 +9,7 @@ const scoreEl = document.getElementById('score');
 const remainingEl = document.getElementById('remaining');
 const livesEl = document.getElementById('lives');
 const levelEl = document.getElementById('level');
+const ammoEl = document.getElementById('ammo');
 const infoEl = document.getElementById('info');
 const startScreen = document.getElementById('startScreen');
 const startBtn = document.getElementById('startBtn');
@@ -26,13 +27,17 @@ world.appendChild(player);
 
 let goalEl = null;
 let platforms = [], coins = [], obstacles = [], spikes = [], ladders = [], birds = [];
+let monsters = [], projectiles = [];
 let score = 0, lives = CONFIG.startLives, level = 1;
+let ammo = 0;
 let playerX = CONFIG.startX, playerY = CONFIG.startY, velY = 0, velX = 0;
+let facingRight = true;
 let gameActive = false, countdownActive = false;
 let keys = { left: false, right: false, up: false, down: false };
 let camX = 0, camY = 0;
 let onLadder = false, jumpsLeft = CONFIG.maxJumps;
 let prevUpPressed = false, dropThroughTimer = 0;
+let monsterHitCooldown = 0, fireCooldown = 0;
 
 // --- Multiplayer: URL-Parameter lesen ---
 const urlParams = new URLSearchParams(window.location.search);
@@ -71,8 +76,9 @@ function makeDiv(cls, x, y, w, h) {
 
 function buildLevel() {
   const levelData = LEVELS[level];
-  [...world.querySelectorAll('.platform,.coin,.obstacle,.spike,.ladder,.goal,.bird')].forEach(e => e.remove());
+  [...world.querySelectorAll('.platform,.coin,.obstacle,.spike,.ladder,.goal,.bird,.monster,.monster-hp-bg,.monster-name,.projectile')].forEach(e => e.remove());
   platforms = []; coins = []; obstacles = []; spikes = []; ladders = []; birds = [];
+  monsters = []; projectiles = [];
 
   levelData.platforms.forEach((p, i) => {
     const type = p[4] || '';  // z.B. "ground", "stone", "ice", etc.
@@ -104,8 +110,55 @@ function buildLevel() {
     coins.push({ x: c[0], y: c[1], w: 16, h: 16, el, collected });
   });
 
+  // Monster
+  const monsterData = levelData.monsters || [];
+  monsterData.forEach(m => {
+    const [mx, my, range, hp, name] = m;
+    const isBoss = !!name;
+    const w = isBoss ? 44 : 30;
+    const h = isBoss ? 40 : 28;
+    const cls = isBoss ? 'monster monster-boss' : 'monster';
+    const el = makeDiv(cls, mx, my, w, h);
+
+    // HP-Bar (Hintergrund + Fuellung)
+    const hpBg = document.createElement('div');
+    hpBg.className = 'monster-hp-bg';
+    hpBg.style.left = mx + 'px';
+    hpBg.style.top = (my - 10) + 'px';
+    hpBg.style.width = w + 'px';
+    const hpFill = document.createElement('div');
+    hpFill.className = 'monster-hp-fill';
+    hpFill.style.width = '100%';
+    hpBg.appendChild(hpFill);
+    world.appendChild(hpBg);
+
+    // Name-Label (nur fuer Bosse)
+    let nameEl = null;
+    if (name) {
+      nameEl = document.createElement('div');
+      nameEl.className = 'monster-name';
+      nameEl.textContent = name;
+      nameEl.style.left = (mx + w / 2) + 'px';
+      nameEl.style.top = (my - 26) + 'px';
+      world.appendChild(nameEl);
+    }
+
+    monsters.push({
+      x: mx, y: my, w, h,
+      startX: mx, range, vx: CONFIG.monsterSpeed,
+      hp, maxHp: hp, name: name || null,
+      el, hpBg, hpFill, nameEl,
+      alive: true
+    });
+  });
+
   goalEl = makeDiv('goal', levelData.goal[0], levelData.goal[1], 36, 44);
   updateRemaining();
+  updateAmmoUI();
+}
+
+function updateAmmoUI() {
+  if (ammoEl) ammoEl.textContent = ammo;
 }
 
 function updateRemaining() {
@@ -218,6 +271,32 @@ function jump() {
   }
 }
 
+// --- Muenze verschiessen ---
+function fire() {
+  if (countdownActive || !gameActive) return;
+  if (fireCooldown > 0) return;
+  if (ammo <= 0) {
+    infoEl.textContent = 'Keine Muenzen zum Verschiessen!';
+    setTimeout(() => infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel', 900);
+    return;
+  }
+  ammo--;
+  updateAmmoUI();
+  fireCooldown = CONFIG.fireCooldown;
+
+  const dir = facingRight ? 1 : -1;
+  const startX = playerX + (facingRight ? CONFIG.playerWidth : -CONFIG.projectileSize);
+  const startY = playerY + CONFIG.playerHeight / 2 - CONFIG.projectileSize / 2;
+  const el = makeDiv('projectile', startX, startY, CONFIG.projectileSize, CONFIG.projectileSize);
+  projectiles.push({
+    x: startX, y: startY,
+    w: CONFIG.projectileSize, h: CONFIG.projectileSize,
+    vx: dir * CONFIG.projectileSpeed,
+    vy: -2, // leichter Bogen
+    el
+  });
+}
+
 function allCoinsCollected() {
   return coins.every(c => c.collected);
 }
@@ -278,7 +357,13 @@ function update() {
 
   // Bewegung
   velX = keys.left ? -CONFIG.moveSpeed : keys.right ? CONFIG.moveSpeed : 0;
+  if (velX > 0) facingRight = true;
+  else if (velX < 0) facingRight = false;
   playerX += velX;
+
+  // Cooldowns
+  if (monsterHitCooldown > 0) monsterHitCooldown--;
+  if (fireCooldown > 0) fireCooldown--;
 
   // Leiter
   let ladder = onLadderNow();
@@ -337,6 +422,8 @@ function update() {
       c.el.style.display = 'none';
       score++;
       scoreEl.textContent = score;
+      ammo++;
+      updateAmmoUI();
       updateRemaining();
       // Shared Coins: Anderen Spielern mitteilen
       try {
@@ -359,6 +446,86 @@ function update() {
     if (b.x < -120 || b.x > CONFIG.worldWidth + 120) {
       b.el.remove();
       birds.splice(i, 1);
+    }
+  }
+
+  // Monster bewegen & Kollision
+  for (const m of monsters) {
+    if (!m.alive) continue;
+    m.x += m.vx;
+    if (m.x < m.startX) { m.x = m.startX; m.vx = Math.abs(m.vx); }
+    if (m.x > m.startX + m.range) { m.x = m.startX + m.range; m.vx = -Math.abs(m.vx); }
+
+    m.el.style.left = m.x + 'px';
+    m.el.style.top = m.y + 'px';
+    m.el.style.transform = m.vx < 0 ? 'scaleX(-1)' : '';
+
+    // HP-Bar ueber Monster positionieren
+    m.hpBg.style.left = m.x + 'px';
+    m.hpBg.style.top = (m.y - 10) + 'px';
+    m.hpBg.style.width = m.w + 'px';
+    m.hpFill.style.width = Math.max(0, (m.hp / m.maxHp) * 100) + '%';
+
+    if (m.nameEl) {
+      m.nameEl.style.left = (m.x + m.w / 2) + 'px';
+      m.nameEl.style.top = (m.y - 26) + 'px';
+    }
+
+    // Kollision mit Spieler
+    if (monsterHitCooldown <= 0 && rects(pr, m)) {
+      monsterHitCooldown = CONFIG.monsterDamageCooldown;
+      loseLife();
+      prevUpPressed = keys.up;
+      updateCamera();
+      render();
+      return;
+    }
+  }
+
+  // Projektile bewegen & Kollision
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.x += p.vx;
+    p.vy += CONFIG.projectileGravity;
+    p.y += p.vy;
+    p.el.style.left = p.x + 'px';
+    p.el.style.top = p.y + 'px';
+
+    let hit = false;
+
+    // Trifft Monster?
+    for (const m of monsters) {
+      if (!m.alive) continue;
+      if (rects(p, m)) {
+        m.hp -= CONFIG.monsterHitPerShot;
+        hit = true;
+        if (m.hp <= 0) {
+          m.alive = false;
+          m.el.remove();
+          m.hpBg.remove();
+          if (m.nameEl) m.nameEl.remove();
+          if (m.name) {
+            infoEl.textContent = m.name + ' wurde besiegt!';
+            setTimeout(() => infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel', 1500);
+          }
+        }
+        break;
+      }
+    }
+
+    // Trifft Plattform oder out of bounds?
+    if (!hit) {
+      for (const pl of platforms) {
+        if (rects(p, pl)) { hit = true; break; }
+      }
+    }
+    if (!hit && (p.x < -50 || p.x > CONFIG.worldWidth + 50 || p.y > CONFIG.worldHeight + 50)) {
+      hit = true;
+    }
+
+    if (hit) {
+      p.el.remove();
+      projectiles.splice(i, 1);
     }
   }
 
@@ -432,6 +599,13 @@ document.getElementById('upBtn').addEventListener('mouseup', () => keys.up = fal
 
 bindHold(document.getElementById('downBtn'), 'down');
 
+// Feuer-Button (Muenzen verschiessen)
+const fireBtn = document.getElementById('fireBtn');
+if (fireBtn) {
+  fireBtn.addEventListener('touchstart', e => { e.preventDefault(); fire(); }, { passive: false });
+  fireBtn.addEventListener('mousedown', () => fire());
+}
+
 // --- Steuerung: Tastatur ---
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
@@ -441,6 +615,7 @@ window.addEventListener('keydown', e => {
   }
   if (e.key === 'ArrowDown' || e.key === 's') keys.down = true;
   if (e.key === ' ') jump();
+  if (e.key === 'f' || e.key === 'F' || e.key === 'x' || e.key === 'X') fire();
 });
 
 window.addEventListener('keyup', e => {

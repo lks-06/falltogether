@@ -48,6 +48,17 @@ const CONFIG = {
     '#ffab91', // Orange
   ],
 
+  // ----- Monster -----
+  monsterSpeed: 1.2,          // Laufgeschwindigkeit der Monster
+  monsterDamageCooldown: 60,  // Frames Unverwundbarkeit nach Monster-Treffer
+  monsterHitPerShot: 10,      // Schaden pro Muenz-Treffer
+
+  // ----- Projektile (Muenz-Schuesse) -----
+  projectileSpeed: 9,         // Fluggeschwindigkeit
+  projectileSize: 14,
+  projectileGravity: 0.15,    // leicht fallend fuer realistisches Gefuehl
+  fireCooldown: 18,           // Frames zwischen Schuessen
+
   // ----- Level -----
   totalLevels: 6
 };

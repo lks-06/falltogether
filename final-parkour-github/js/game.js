@@ -28,6 +28,7 @@ world.appendChild(player);
 let goalEl = null;
 let platforms = [], coins = [], obstacles = [], spikes = [], ladders = [], birds = [];
 let monsters = [], projectiles = [];
+let droppedPiles = new Map(); // dropId -> {x, y, count, level, el, countEl}
 let score = 0, lives = CONFIG.startLives, level = 1;
 let ammo = 0;
 let playerX = CONFIG.startX, playerY = CONFIG.startY, velY = 0, velX = 0;
@@ -80,6 +81,14 @@ function buildLevel() {
   platforms = []; coins = []; obstacles = []; spikes = []; ladders = []; birds = [];
   monsters = []; projectiles = [];
 
+  // Coin-Piles beim Level-Wechsel wieder an die world anhaengen und sichtbarkeit aktualisieren
+  for (const [dropId, pile] of droppedPiles) {
+    if (!pile.el.isConnected) {
+      world.appendChild(pile.el);
+    }
+    pile.el.style.display = (pile.level === level) ? '' : 'none';
+  }
+
   levelData.platforms.forEach((p, i) => {
     const type = p[4] || '';  // z.B. "ground", "stone", "ice", etc.
     const cls = type ? 'platform platform-' + type : 'platform';
@@ -103,11 +112,30 @@ function buildLevel() {
   });
 
   levelData.coins.forEach((c, i) => {
+    let cx = c[0], cy = c[1];
+
+    // Muenzen nicht direkt ueber roten Bloecken platzieren — sonst zu schwer zu holen
+    for (const o of obstacles) {
+      const xOverlap = cx + 16 > o.x - 18 && cx < o.x + o.w + 18;
+      const verticallyNear = (cy + 16) >= o.y - 55 && (cy + 16) <= o.y + 10;
+      if (xOverlap && verticallyNear) {
+        // Zur Seite verschieben, weg vom Obstacle
+        if (cx + 8 < o.x + o.w / 2) {
+          cx = o.x - 38;
+        } else {
+          cx = o.x + o.w + 24;
+        }
+        // In Weltgrenzen halten
+        cx = Math.max(10, Math.min(cx, CONFIG.worldWidth - 26));
+        break;
+      }
+    }
+
     const alreadyTaken = typeof isCoinCollected === 'function' && isCoinCollected(level, i);
-    let el = makeDiv('coin', c[0], c[1], 16, 16);
+    let el = makeDiv('coin', cx, cy, 16, 16);
     const collected = alreadyTaken;
     if (collected) el.style.display = 'none';
-    coins.push({ x: c[0], y: c[1], w: 16, h: 16, el, collected });
+    coins.push({ x: cx, y: cy, w: 16, h: 16, el, collected });
   });
 
   // Monster
@@ -197,8 +225,51 @@ function resetPlayer() {
   dropThroughTimer = 0;
 }
 
+// --- Coin-Haufen: erstellen / entfernen ---
+function createDroppedPile(dropId, x, y, count, pileLevel) {
+  if (droppedPiles.has(dropId)) return;
+  // Nur im aktuellen Level sichtbar
+  const el = document.createElement('div');
+  el.className = 'coin-pile';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  const countEl = document.createElement('div');
+  countEl.className = 'coin-pile-count';
+  countEl.textContent = count;
+  el.appendChild(countEl);
+  if (pileLevel !== level) el.style.display = 'none';
+  world.appendChild(el);
+  droppedPiles.set(dropId, { x, y, count, level: pileLevel, el, countEl });
+}
+
+function removeDroppedPile(dropId) {
+  const pile = droppedPiles.get(dropId);
+  if (!pile) return;
+  if (pile.el) pile.el.remove();
+  droppedPiles.delete(dropId);
+}
+
+// Eigene Muenzen beim Tod fallen lassen
+function dropAmmoAsPile() {
+  if (ammo <= 0) return;
+  const count = ammo;
+  ammo = 0;
+  updateAmmoUI();
+  const dropId = mpPlayerId + '_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  // Haufen leicht ueber dem Spieler, damit er nicht in einer Plattform verschwindet
+  const px = playerX + (CONFIG.playerWidth / 2) - 16;
+  const py = Math.max(40, playerY);
+  createDroppedPile(dropId, px, py, count, level);
+  if (typeof broadcastCoinDrop === 'function') {
+    broadcastCoinDrop(dropId, px, py, count, level);
+  }
+}
+
 // --- Leben verlieren ---
 function loseLife() {
+  // Zuerst: Muenzen am Todesort fallen lassen
+  dropAmmoAsPile();
+
   lives--;
   livesEl.textContent = lives;
   if (lives <= 0) {
@@ -208,8 +279,8 @@ function loseLife() {
     gameOverText.textContent = 'Du bist zu oft gestorben.';
   } else {
     resetPlayer();
-    infoEl.textContent = 'Von vorne gestartet!';
-    setTimeout(() => infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel', 900);
+    infoEl.textContent = 'Muenzen verloren! Hol sie dir zurueck.';
+    setTimeout(() => infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel', 1200);
   }
 }
 
@@ -446,6 +517,22 @@ function update() {
     if (b.x < -120 || b.x > CONFIG.worldWidth + 120) {
       b.el.remove();
       birds.splice(i, 1);
+    }
+  }
+
+  // Coin-Haufen aufsammeln
+  for (const [dropId, pile] of droppedPiles) {
+    if (pile.level !== level) continue;
+    const pileRect = { x: pile.x, y: pile.y, w: 32, h: 32 };
+    if (rects(pr, pileRect)) {
+      ammo += pile.count;
+      updateAmmoUI();
+      removeDroppedPile(dropId);
+      if (typeof broadcastCoinPickup === 'function') {
+        broadcastCoinPickup(dropId);
+      }
+      infoEl.textContent = '+' + pile.count + ' Muenzen zurueck!';
+      setTimeout(() => infoEl.textContent = 'Sammle alle Münzen und erreiche dann das Ziel', 900);
     }
   }
 

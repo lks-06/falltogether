@@ -51,6 +51,11 @@ body{display:flex;justify-content:center;align-items:center}
 /* ===== PROJEKTIL (Muenz-Schuss) ===== */
 .projectile{position:absolute;width:14px;height:14px;background:radial-gradient(#fff4a0,#ffd400 60%,#d49b00);border:2px solid #a07600;border-radius:50%;z-index:5;box-shadow:0 0 8px #ffd400}
 
+/* ===== COIN-HAUFEN (beim Tod gefallen) ===== */
+.coin-pile{position:absolute;width:32px;height:32px;border-radius:50%;background:radial-gradient(#fff4a0,#ffd400 55%,#a07600);border:3px solid #5a3d00;box-shadow:0 0 14px #ffd400,inset -3px -3px 0 rgba(0,0,0,.2);z-index:4;display:flex;align-items:center;justify-content:center;animation:pilePulse 1.1s ease-in-out infinite}
+.coin-pile-count{color:#3d2800;font-size:12px;font-weight:900;text-shadow:0 1px 0 #ffd400}
+@keyframes pilePulse{0%,100%{transform:scale(1);box-shadow:0 0 10px #ffd400}50%{transform:scale(1.12);box-shadow:0 0 20px #ffd400}}
+
 /* ===== VÖGEL ===== */
 .bird{position:absolute;width:34px;height:20px;z-index:6;pointer-events:none}
 .bird::before,.bird::after{content:"";position:absolute;top:6px;width:16px;height:8px;border:3px solid #2f2f2f;border-color:#2f2f2f transparent transparent transparent;border-radius:50%}

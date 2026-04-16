@@ -50,6 +50,22 @@ function initSharedCoins(roomCode) {
     sendCoinsState();
   });
 
+  // Ein Spieler hat einen Muenz-Haufen fallen gelassen (Tod)
+  sharedCoinsChannel.on('broadcast', { event: 'coin_drop' }, ({ payload }) => {
+    if (!payload) return;
+    if (typeof createDroppedPile === 'function') {
+      createDroppedPile(payload.dropId, payload.x, payload.y, payload.count, payload.level);
+    }
+  });
+
+  // Ein Spieler hat einen Muenz-Haufen aufgesammelt
+  sharedCoinsChannel.on('broadcast', { event: 'coin_pickup' }, ({ payload }) => {
+    if (!payload) return;
+    if (typeof removeDroppedPile === 'function') {
+      removeDroppedPile(payload.dropId);
+    }
+  });
+
   // Antwort mit gesamtem Münz-Stand (wenn wir beitreten)
   sharedCoinsChannel.on('broadcast', { event: 'coins_state' }, ({ payload }) => {
     if (!payload) return;
@@ -145,6 +161,30 @@ function isCoinCollected(coinLevel, coinIndex) {
   return roomCoinsState.collected_coins.some(
     c => c.level === coinLevel && c.coin_index === coinIndex
   );
+}
+
+// Broadcast: Muenz-Haufen fallen gelassen
+function broadcastCoinDrop(dropId, x, y, count, dropLevel) {
+  if (!sharedCoinsChannel || !sharedCoinsReady) return;
+  try {
+    sharedCoinsChannel.send({
+      type: 'broadcast',
+      event: 'coin_drop',
+      payload: { dropId, x, y, count, level: dropLevel, player_id: mpPlayerId }
+    });
+  } catch (e) { /* ignore */ }
+}
+
+// Broadcast: Muenz-Haufen aufgesammelt
+function broadcastCoinPickup(dropId) {
+  if (!sharedCoinsChannel || !sharedCoinsReady) return;
+  try {
+    sharedCoinsChannel.send({
+      type: 'broadcast',
+      event: 'coin_pickup',
+      payload: { dropId, picker_id: mpPlayerId }
+    });
+  } catch (e) { /* ignore */ }
 }
 
 function sendCoinsState() {

@@ -90,10 +90,10 @@ const LEVEL_1 = {
     [1790, 502], [1860, 502],
   ],
   monsters: [
-    // Kleines Monster auf der mittleren Bodeninsel
-    [720, 1708, 200, 10],
-    // BOSS: asra auf der Hoehe beim Ziel
-    [1700, 1668, 220, 30, "asra"],
+    // Normales Monster auf mittlerer Grasplattform
+    [900, 1202, 150, 10],
+    // BOSS: asra auf hoher Grasplattform — muss man im Aufstieg bekaempfen
+    [1430, 760, 120, 30, "asra"],
   ],
   goal: [1800, 496]
 };
@@ -178,8 +178,10 @@ const LEVEL_2 = {
     [790, 492], [850, 492],
   ],
   monsters: [
-    [100, 1708, 300, 10],
-    [1100, 1708, 280, 10],
+    // Monster auf mittlerer Stein-Plattform
+    [470, 1272, 200, 10],
+    // Monster auf hoher Stein-Plattform
+    [550, 892, 200, 10],
   ],
   goal: [800, 486]
 };
@@ -266,8 +268,10 @@ const LEVEL_3 = {
     [900, 542], [960, 542],
   ],
   monsters: [
-    [60, 1708, 250, 10],
-    [1250, 1668, 200, 10],
+    // Monster auf Stein-Plattform oben rechts
+    [1850, 1212, 130, 10],
+    // Monster auf hoher Stein-Plattform
+    [400, 822, 140, 10],
   ],
   goal: [910, 536]
 };
@@ -365,8 +369,10 @@ const LEVEL_4 = {
     [1870, 542], [1940, 542],
   ],
   monsters: [
-    [50, 1708, 180, 10],
-    [790, 1708, 170, 10],
+    // Monster auf oberer Boden-Plattform
+    [1400, 672, 100, 10],
+    // Monster auf der Zielplattform-Reihe
+    [1830, 552, 110, 10],
   ],
   goal: [1880, 536]
 };
@@ -461,8 +467,10 @@ const LEVEL_5 = {
     [820, 522], [880, 522],
   ],
   monsters: [
-    [50, 1708, 280, 10],
-    [1000, 1708, 180, 10],
+    // Monster auf breiter Stein-Etage in der Mitte
+    [220, 1222, 280, 10],
+    // Monster auf hoher Stein-Etage
+    [1100, 842, 230, 10],
   ],
   goal: [830, 516]
 };
@@ -561,8 +569,10 @@ const LEVEL_6 = {
     [420, 392], [480, 392],
   ],
   monsters: [
-    [50, 1708, 180, 10],
-    [450, 1688, 120, 10],
+    // Monster auf mittlerer Stein-Plattform
+    [1050, 1272, 150, 10],
+    // Monster auf hoher Stein-Plattform
+    [800, 642, 150, 10],
   ],
   goal: [420, 386]
 };
